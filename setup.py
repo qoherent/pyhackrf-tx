@@ -6,7 +6,7 @@ setup(
     description='Python interface for HackRF with transmitter support',
     author='Ash Beigi',
     author_email='ash@qoherent.ai',
-    license='GPLv3'
+    license='GPLv3',
     url='https://github.com/qoherent/pyhackrf-tx',
     packages=find_packages(),
     install_requires=[
