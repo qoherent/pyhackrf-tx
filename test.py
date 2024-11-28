@@ -1,4 +1,4 @@
-from libhackrf import *
+from pyhackrftx.libhackrf import *
 
 
 hackrf = HackRF()
