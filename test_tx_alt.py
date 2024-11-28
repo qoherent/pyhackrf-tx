@@ -2,6 +2,7 @@ import numpy as np
 from libhackrf import *
 
 
+
 def generate_alternating_tones(freq1, freq2, sample_rate, duration=1.0, switch_interval=0.01):
     """
     Generate a complex baseband signal that alternates between two frequencies.

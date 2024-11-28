@@ -1,13 +1,13 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='pyhackrf-tx',
+    name='pyhackrftx',
     version='0.2.1',  # Update the version number
     description='Python interface for HackRF with transmitter support',
     author='Ash Beigi',
     author_email='ash@qoherent.ai',
     license='GPLv3',
-    url='https://github.com/qoherent/pyhackrf-tx',
+    url='https://github.com/qoherent/pyhackrftx',
     packages=find_packages(),
     install_requires=[
         'numpy',
