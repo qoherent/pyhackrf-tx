@@ -2,6 +2,16 @@
 
 A Python wrappper for libhackrf
 
+# QOHERENT NOTE
+
+Below is the original docs for the pyhackrf library - added some chatgpt output to complete the transmission components. all other elements are the same and unchanged.
+
+see `test_tx_alt.py` or `test_tx_tone.py` for two examples
+
+**CODE IS PROVIDED AS-IS AND WITHOUT WARRANTY** - THE CODE IS COPYRIGHT THE OWNER  (@dressel) and we present it here under the GPLv3 license as per the pypi version:
+https://pypi.org/project/pyhackrf/
+
+
 # Description
 
 I wanted something like [pyrtldsr](https://github.com/roger-/pyrtlsdr) for the HackRF: a convenient python interface to handle calls to the libhackrf library.

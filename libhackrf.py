@@ -331,6 +331,57 @@ f.argtypes = [p_hackrf_device, POINTER(read_partid_serialno_t)]
 ## libhackrf.hackrf_filter_path_name.argtypes = []
 #
 
+# Callback type for transmit
+_tx_callback = CFUNCTYPE(c_int, POINTER(hackrf_transfer))
+
+# extern ADDAPI int ADDCALL hackrf_start_tx(hackrf_device* device, hackrf_sample_block_cb_fn callback, void* tx_ctx);
+libhackrf.hackrf_start_tx.restype = c_int
+libhackrf.hackrf_start_tx.argtypes = [p_hackrf_device, _tx_callback, c_void_p]
+
+# extern ADDAPI int ADDCALL hackrf_stop_tx(hackrf_device* device);
+libhackrf.hackrf_stop_tx.restype = c_int
+libhackrf.hackrf_stop_tx.argtypes = [p_hackrf_device]
+
+# Gain settings for transmit
+# extern ADDAPI int ADDCALL hackrf_set_txvga_gain(hackrf_device* device, uint32_t value);
+libhackrf.hackrf_set_txvga_gain.restype = c_int
+libhackrf.hackrf_set_txvga_gain.argtypes = [p_hackrf_device, c_uint32]
+
+# Helper function to convert complex64 samples to bytes
+def iq2bytes(samples):
+    """
+    Convert complex64 samples to interleaved int8 bytes for HackRF transmission.
+
+    :param samples: NumPy array of complex64 samples.
+    :return: Bytes object containing interleaved I/Q samples as int8.
+    """
+    # Normalize samples to the range -1 to +1
+    samples = samples / np.max(np.abs(samples))
+    
+    # Scale to the range -127 to +127
+    samples_scaled = samples * 127.0
+
+    # Ensure the values are within the int8 range
+    samples_scaled = np.clip(samples_scaled, -127, 127)
+
+    # Separate real and imaginary parts and convert to int8
+    i_samples = np.real(samples_scaled).astype(np.int8)
+    q_samples = np.imag(samples_scaled).astype(np.int8)
+
+    # Interleave I and Q samples
+    interleaved = np.empty(i_samples.size + q_samples.size, dtype=np.int8)
+    interleaved[0::2] = i_samples
+    interleaved[1::2] = q_samples
+
+    return interleaved.tobytes()
+
+
+# Helper function to get error names
+def get_error_name(error_code):
+    libhackrf.hackrf_error_name.restype = c_char_p
+    libhackrf.hackrf_error_name.argtypes = [c_int]
+    return libhackrf.hackrf_error_name(error_code).decode('utf-8')
+
 
 class HackRF(object):
     
@@ -345,9 +396,18 @@ class HackRF(object):
         self.disable_amp()
         self.set_lna_gain(16)
         self.set_vga_gain(16)
+        self.set_txvga_gain(0)
 
         self.buffer = bytearray()
         self.num_bytes = 16*262144
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+
 
     def open(self, device_index=0):
 
@@ -508,6 +568,89 @@ class HackRF(object):
         if result != 0:
             raise IOError("stop_rx failure");
 
+    # Add transmit gain property
+    def set_txvga_gain(self, gain):
+        if gain < 0 or gain > 47:
+            raise ValueError("TXVGA gain must be between 0 and 47 dB")
+        result = libhackrf.hackrf_set_txvga_gain(self.dev_p, gain)
+        if result != 0:
+            error_name = get_error_name(result)
+            raise IOError(f"Error setting TXVGA gain: {error_name} (Code {result})")
+        self._txvga_gain = gain
+        print(f"TXVGA gain set to {gain} dB.")
+        return 0
+
+    def get_txvga_gain(self):
+        return self._txvga_gain
+
+    txvga_gain = property(get_txvga_gain, set_txvga_gain)
+
+    # Method to start transmission
+    def start_tx(self, samples, repeat=False):
+        """
+        Start transmitting samples.
+
+        :param samples: A numpy array of complex64 samples to transmit.
+        :param repeat: If True, the samples will be transmitted in a loop.
+        """
+        if not isinstance(samples, np.ndarray) or samples.dtype != np.complex64:
+            raise ValueError("Samples must be a numpy array of complex64")
+
+        self.tx_buffer = samples
+        self.tx_repeat = repeat
+        self.tx_index = 0  # Index to keep track of where we are in the buffer
+
+        # Convert the callback function to the required C callback
+        self._tx_cb = _tx_callback(self._tx_callback)
+        result = libhackrf.hackrf_start_tx(self.dev_p, self._tx_cb, None)
+        if result != 0:
+            error_name = get_error_name(result)
+            raise IOError(f"Error starting transmission: {error_name} (Code {result})")
+
+    # Method to stop transmission
+    def stop_tx(self):
+        result = libhackrf.hackrf_stop_tx(self.dev_p)
+        if result != 0:
+            error_name = get_error_name(result)
+            raise IOError(f"Error stopping transmission: {error_name} (Code {result})")
+
+    # The transmit callback function
+    def _tx_callback(self, hackrf_transfer):
+        c = hackrf_transfer.contents
+
+        # Determine how many bytes we need to send
+        bytes_to_send = c.valid_length
+
+        # Prepare the data to send
+        end_index = self.tx_index + bytes_to_send // 2  # Each sample is 2 bytes (I and Q)
+
+        if end_index > len(self.tx_buffer):
+            if self.tx_repeat:
+                # Loop back to the start
+                end_index = end_index % len(self.tx_buffer)
+                data = np.concatenate((self.tx_buffer[self.tx_index:], self.tx_buffer[:end_index]))
+                self.tx_index = end_index
+            else:
+                # Fill the remaining buffer with zeros
+                data = self.tx_buffer[self.tx_index:]
+                padding = np.zeros(end_index - len(self.tx_buffer), dtype=np.complex64)
+                data = np.concatenate((data, padding))
+                self.tx_index = len(self.tx_buffer)
+        else:
+            data = self.tx_buffer[self.tx_index:end_index]
+            self.tx_index = end_index
+
+        # Convert complex64 samples to bytes
+        iq_bytes = iq2bytes(data)
+
+        # Copy data to the buffer
+        memmove(c.buffer, iq_bytes, len(iq_bytes))
+
+        # If we've reached the end of the buffer and not repeating, stop transmission
+        if self.tx_index >= len(self.tx_buffer) and not self.tx_repeat:
+            return -1  # Returning -1 stops the transmission
+
+        return 0  # Continue transmission
 
 
 # returns serial number as a string
