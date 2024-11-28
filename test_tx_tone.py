@@ -1,5 +1,8 @@
 import numpy as np
-from libhackrf import *
+# from pyhackrftx.libhackrf import *
+
+from pyhackrftx import HackRF
+import time
 
 # Generate a test signal (e.g., a sine wave)
 def generate_tone(freq, sample_rate, duration):

@@ -1,7 +1,8 @@
 import numpy as np
-from libhackrf import *
+# from pyhackrftx.libhackrf import *
 
-
+from pyhackrftx import HackRF
+import time
 
 def generate_alternating_tones(freq1, freq2, sample_rate, duration=1.0, switch_interval=0.01):
     """
